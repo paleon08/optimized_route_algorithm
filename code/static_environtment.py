@@ -51,6 +51,11 @@ class StairsNode(Node):
             return congestion_func(base_time, current_time)
         return base_time
 
+#홈베이스
+class HomebaseNode(Node):
+    def __init__(self, node_id, name, x, y, floor):
+        super().__init__(node_id, name, x, y, floor, category="홈베이스")
+
 
 # --- 대기 시간이 발생하는 특정 노드들 ---
 
@@ -243,8 +248,25 @@ if __name__=="__main__":
     c1 = ClassroomNode(node_id="C1", name="2학년 3반", x=-20, y=0, floor=2)
     m1 = StoreNode(node_id="M1", name="2층 매점", x=30, y=0, floor=2, base_wait_time=120.0)
 
+    # --- 3층 노드 세팅 ---
+    s31= StairsNode(node_id="S31", name='중앙 계단(3F)', x=5, y=5, floor=3, stair_group="Center")
+    s32= StairsNode(node_id="S32", name='회전 계단(3F)', x=0, y=-1, floor=3, stair_group="Side")
+    i3 = IntersectionNode(node_id="I3", name="3층 중앙 복도", x=0, y=0, floor=3)
+    r3 = RestroomNode(node_id="R3", name="3층 화장실", x=-13, y=0, floor=3, base_wait_time=30.0)
+    m3 = StoreNode(node_id="M3", name="3층 매점", x=0, y=5, floor=3, base_wait_time=120.0)
+    c3 = ClassroomNode(node_id="C3", name="3학년 8반", x=-10, y=0, floor=3)
+    h3= HomebaseNode(node_id="H3", name='홈베이스', x=0, y=-12, floor=3)
+    
+    # --- 4층 노드 세팅 ---
+    s41= StairsNode(node_id="S41", name='중앙 계단(4F)', x=5, y=9, floor=4, stair_group="Center")
+    s42= StairsNode(node_id="S42", name='회전 계단(4F)', x=0, y=-1, floor=4, stair_group="Side")
+    i4 = IntersectionNode(node_id="I4", name="4층 중앙 복도", x=0, y=0, floor=4)
+    r41 = RestroomNode(node_id="R41", name="4층 화장실1", x=0, y=9, floor=4, base_wait_time=30.0)
+    r42 = RestroomNode(node_id="R42", name="4층 화장실2", x=-13, y=0, floor=4, base_wait_time=30.0)
+    
+
     # 맵에 노드 등록
-    for node in [i1, r1, s1, s2, i2, c1, m1]:
+    for node in [s31, s32, i3, r3, m3, c3, h3 s41,s42,i4,r41,r42]:
         school_map.add_node(node)
 
     # ==========================================
@@ -259,8 +281,23 @@ if __name__=="__main__":
     school_map.connect_nodes("I2", "C1")
     school_map.connect_nodes("I2", "M1")
     
+    #3층 연결
+    school_map.connect_nodes("I3", "S31")
+    school_map.connect_nodes("I3", "C3")
+    school_map.connect_nodes("I3", "M3")
+    school_map.connect_nodes("I3", "S32")
+    school_map.connect_nodes("C3", "R3")
+    school_map.connect_nodes("S32", "H3")
+    
+    #4층 연결
+    school_map.connect_nodes("S41", "R41")
+    school_map.connect_nodes("R41", "I4")
+    school_map.connect_nodes("I4", "R42")
+    school_map.connect_nodes("I4", "S42")
+
     # 층간 계단 연결 (길찾기 알고리즘이 층계를 타고 넘어가려면 서로 연결되어 있어야 함)
-    school_map.connect_nodes("S1", "S2")
+    school_map.connect_nodes("S31", "S41")
+    school_map.connect_nodes("S32", "S42")
 
     # ==========================================
     # 3. 시뮬레이션 환경 세팅
