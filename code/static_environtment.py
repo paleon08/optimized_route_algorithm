@@ -163,6 +163,113 @@ class TimeManager:
         seconds = int(self.elapsed_sec % 60)
         return f"[{self.current_time_slot}] 누적: {minutes}분 {seconds}초 / 남은 시간: {int(self.get_remaining_time())}초"
     
+# ==========================================
+# 최적 경로 탐색 객체 (새로 추가됨)
+# ==========================================
+class PathFinder:
+    def __init__(self, school_map: SchoolMap, walking_speed_m_s: float = 1.0):
+        self.school_map = school_map
+        self.walking_speed = walking_speed_m_s
+
+    def _get_neighbors(self, node_id: str) -> List[str]:
+        """기존 연결망 + 동일 그룹 계단 간의 수직 이동망을 결합하여 반환"""
+        neighbors = set(self.school_map.adjacency_list.get(node_id, []))
+        node = self.school_map.nodes[node_id]
+        
+        # 계단일 경우, 동일한 stair_group을 공유하는 다른 층의 계단을 인접 노드로 연결
+        if hasattr(node, 'stair_group'):
+            for other_node in self.school_map.nodes.values():
+                if hasattr(other_node, 'stair_group') and other_node.stair_group == node.stair_group and other_node.node_id != node_id:
+                    neighbors.add(other_node.node_id)
+                    
+        return list(neighbors)
+
+    def _calculate_travel_time(self, current_node: Node, next_node: Node) -> float:
+        """두 노드 간의 순수 이동 시간 계산"""
+        # 층간 이동 (계단)
+        if current_node.floor != next_node.floor:
+            if hasattr(current_node, 'calculate_stair_time'):
+                return current_node.calculate_stair_time(next_node.floor)
+            else:
+                return float('inf') # 층이 다른데 계단이 아니면 이동 불가
+        
+        # 같은 층 이동 (걷기)
+        distance = math.hypot(current_node.x - next_node.x, current_node.y - next_node.y)
+        return distance / self.walking_speed
+
+    def _heuristic(self, node: Node, goal_node: Node) -> float:
+        """탐욕 알고리즘을 위한 휴리스틱 함수 (도착지까지의 단순 거리 기반 예상 소요 시간)"""
+        # 1. 층간 이동 예상 시간 (계단 기본 소요 시간을 15초로 가정)
+        floor_diff = abs(node.floor - goal_node.floor)
+        stair_time = floor_diff * 15.0 
+        
+        # 2. 직선 거리 예상 시간
+        distance = math.hypot(node.x - goal_node.x, node.y - goal_node.y)
+        walk_time = distance / self.walking_speed
+        
+        return stair_time + walk_time
+
+    def find_path_dijkstra(self, start_id: str, goal_id: str) -> List[Node]:
+        """다익스트라 알고리즘: 실제 소요 시간을 바탕으로 최단 경로(가장 빠른 길) 보장"""
+        queue = [(0.0, start_id, [start_id])]
+        distances = {node_id: float('inf') for node_id in self.school_map.nodes}
+        distances[start_id] = 0.0
+        
+        while queue:
+            current_time, current_id, path = heapq.heappop(queue)
+            
+            # 목표 지점 도달 시 Node 객체 리스트로 변환하여 반환
+            if current_id == goal_id:
+                return [self.school_map.nodes[n_id] for n_id in path]
+                
+            if current_time > distances[current_id]:
+                continue
+                
+            current_node = self.school_map.nodes[current_id]
+            
+            for neighbor_id in self._get_neighbors(current_id):
+                neighbor_node = self.school_map.nodes[neighbor_id]
+                travel_time = self._calculate_travel_time(current_node, neighbor_node)
+                new_time = current_time + travel_time
+                
+                if new_time < distances[neighbor_id]:
+                    distances[neighbor_id] = new_time
+                    heapq.heappush(queue, (new_time, neighbor_id, path + [neighbor_id]))
+                    
+        return [] # 경로가 없을 경우 빈 리스트
+
+    def find_path_greedy(self, start_id: str, goal_id: str) -> List[Node]:
+        """탐욕(Greedy) 알고리즘: 현재 위치에서 목표까지 '예상 시간(휴리스틱)'이 가장 짧은 노드만 우선 탐색"""
+        goal_node = self.school_map.nodes[goal_id]
+        
+        # 튜플 구성: (휴리스틱 시간, 실제 누적 시간, 노드 ID, 누적 경로)
+        queue = [(self._heuristic(self.school_map.nodes[start_id], goal_node), 0.0, start_id, [start_id])]
+        visited = set()
+        
+        while queue:
+            _, current_time, current_id, path = heapq.heappop(queue)
+            
+            if current_id == goal_id:
+                return [self.school_map.nodes[n_id] for n_id in path]
+                
+            if current_id in visited:
+                continue
+            visited.add(current_id)
+            
+            current_node = self.school_map.nodes[current_id]
+            
+            for neighbor_id in self._get_neighbors(current_id):
+                if neighbor_id not in visited:
+                    neighbor_node = self.school_map.nodes[neighbor_id]
+                    
+                    travel_time = self._calculate_travel_time(current_node, neighbor_node)
+                    new_time = current_time + travel_time
+                    h_time = self._heuristic(neighbor_node, goal_node)
+                    
+                    # 우선순위 큐는 맨 앞 요소(h_time)를 기준으로 가장 유망한 노드를 추출합니다.
+                    heapq.heappush(queue, (h_time, new_time, neighbor_id, path + [neighbor_id]))
+                    
+        return []
 
 def simulate_student_movement(path: list, destination_node, time_manager):
     """
@@ -251,12 +358,19 @@ if __name__=="__main__":
     # 시뮬레이션 환경 세팅 (8교시로 가정하여 지연 함수 발동 테스트)
     time_mgr = TimeManager("8교시", max_duration_sec=600, walking_speed_m_s=1.5)
 
-    # 시나리오: 체육관(1F)에서 출발해 3층 매점(M3)으로 이동하는 가상 경로
-    sample_path = [c1, s1, s32, i3, m3]
+    path_finder = PathFinder(school_map=school_map, walking_speed_m_s=time_mgr.walking_speed)
 
-    # [수정] 호출 시 시뮬레이터에 불필요한 공통 혼잡도 함수를 인자로 던지지 않습니다.
+    print("\n🔍 다익스트라 알고리즘 최적 경로 탐색 (체육관 -> 3층 매점)")
+    dijkstra_path = path_finder.find_path_dijkstra("C1", "M3")
+    print(f"도출된 경로: {[n.name for n in dijkstra_path]}")
+
+    print("\n🔍 탐욕 알고리즘 최적 경로 탐색 (체육관 -> 3층 매점)")
+    greedy_path = path_finder.find_path_greedy("C1", "M3")
+    print(f"도출된 경로: {[n.name for n in greedy_path]}")
+
+    # 찾아낸 경로로 기존 시뮬레이터 실행!
     simulate_student_movement(
-        path=sample_path, 
-        destination_node=m3, 
+        path=dijkstra_path, 
+        destination_node=school_map.nodes["M3"], 
         time_manager=time_mgr
     )
